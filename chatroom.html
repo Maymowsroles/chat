@@ -808,10 +808,32 @@ async function sendMsg() {
   const text = msgInput.value.trim();
   if (!text || text.length > 400) return;
   // warn if message is ALL swears with nothing else
-  const normText = normalizeLeet(text);
-  const allSwear = SWEARS.filter(w => !w.includes(' ')).every(w => normText.includes(normalizeLeet(w))) || SWEARS.filter(w=>!w.includes(' ')).some(w => normalizeLeet(text.trim()) === normalizeLeet(w));
-  const clean = text.replace(/[\w@$!0-9]+/g, t => { const n=normalizeLeet(t); return SWEARS.filter(w=>!w.includes(' ')).find(w=>n===normalizeLeet(w)||n.includes(normalizeLeet(w)))?'':t; }).trim();
-  if (!clean) { msgInput.style.borderColor = 'var(--danger)'; setTimeout(() => msgInput.style.borderColor = '', 800); return; }
+  // check if message contains ANY swear word
+  function containsSwear(str) {
+    const norm = normalizeLeet(str);
+    const singleHit = SWEARS.filter(w => !w.includes(' ')).some(w => {
+      const nw = normalizeLeet(w);
+      return norm.split(/\s+/).some(token => normalizeLeet(token) === nw || normalizeLeet(token).includes(nw));
+    });
+    if (singleHit) return true;
+    const phraseHit = SWEARS.filter(w => w.includes(' ')).some(w => norm.includes(normalizeLeet(w)));
+    if (phraseHit) return true;
+    if (filterInstance) { try { return filterInstance.isProfane(str); } catch(e) {} }
+    return false;
+  }
+  if (containsSwear(text)) {
+    msgInput.style.borderColor = 'var(--danger)';
+    msgInput.style.color = 'var(--danger)';
+    const prev = msgInput.placeholder;
+    msgInput.placeholder = 'unexpected error. please try again';
+    msgInput.value = '';
+    setTimeout(() => {
+      msgInput.style.borderColor = '';
+      msgInput.style.color = '';
+      msgInput.placeholder = prev;
+    }, 2500);
+    return;
+  }
   if (Date.now() - lastSent < RATE_LIMIT_MS) return;
   lastSent = Date.now();
   sendBtn.disabled = true;
