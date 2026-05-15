@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>chatroom</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet" />
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0e0e0e;
+    --surface: #161616;
+    --border: #2a2a2a;
+    --border-light: #333;
+    --text: #e8e8e8;
+    --muted: #666;
+    --accent: #c8f542;
+    --accent-dim: #a8d030;
+    --mono: 'IBM Plex Mono', monospace;
+    --sans: 'IBM Plex Sans', sans-serif;
+  }
+
+  html, body { height: 100%; background: var(--bg); color: var(--text); font-family: var(--sans); }
+
+  /* JOIN SCREEN */
+  #join-screen {
+    display: flex; align-items: center; justify-content: center;
+    min-height: 100vh; padding: 2rem;
+  }
+  .join-box { width: 100%; max-width: 340px; }
+  .join-box h2 { font-family: var(--mono); font-size: 1rem; color: var(--accent); margin-bottom: 0.5rem; }
+  .join-box p { font-size: 13px; color: var(--muted); margin-bottom: 1.5rem; line-height: 1.6; }
+  .join-box input {
+    width: 100%; padding: 11px 14px; font-size: 15px;
+    background: var(--surface); border: 1px solid var(--border-light);
+    color: var(--text); font-family: var(--mono); outline: none;
+    margin-bottom: 12px; transition: border-color 0.15s;
+  }
+  .join-box input:focus { border-color: var(--accent); }
+  .join-box input::placeholder { color: var(--muted); }
+  #join-btn {
+    width: 100%; padding: 11px;
+    background: var(--accent); color: #0e0e0e;
+    border: none; font-family: var(--mono); font-size: 13px; font-weight: 500;
+    cursor: pointer; transition: background 0.15s;
+  }
+  #join-btn:hover { background: var(--accent-dim); }
+  #join-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  #join-error { font-size: 12px; color: #f87171; margin-top: 0.75rem; font-family: var(--mono); display: none; }
+
+  /* CHAT SCREEN */
+  #chat-screen { display: none; flex-direction: column; height: 100vh; }
+
+  #chat-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 13px 20px; border-bottom: 1px solid var(--border);
+    background: var(--surface); flex-shrink: 0;
+  }
+  .header-left { display: flex; align-items: center; gap: 12px; }
+  .live-pill {
+    display: flex; align-items: center; gap: 5px;
+    font-family: var(--mono); font-size: 10px; color: var(--accent);
+    text-transform: uppercase; letter-spacing: 0.1em;
+  }
+  .live-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: blink 1.5s infinite; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+  #room-title { font-family: var(--mono); font-size: 14px; color: var(--text); }
+  #presence-count { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  #leave-btn {
+    font-family: var(--mono); font-size: 11px; color: var(--muted);
+    background: none; border: 1px solid var(--border); padding: 5px 12px;
+    cursor: pointer; transition: color 0.15s, border-color 0.15s;
+  }
+  #leave-btn:hover { color: #f87171; border-color: #f87171; }
+
+  #messages {
+    flex: 1; overflow-y: auto; padding: 16px 20px;
+    display: flex; flex-direction: column; gap: 1px;
+    scrollbar-width: thin; scrollbar-color: var(--border) transparent;
+  }
+  #messages::-webkit-scrollbar { width: 4px; }
+  #messages::-webkit-scrollbar-thumb { background: var(--border); }
+
+  .msg {
+    display: flex; gap: 14px; padding: 5px 8px;
+    border-radius: 2px; transition: background 0.1s; align-items: baseline;
+  }
+  .msg:hover { background: rgba(255,255,255,0.03); }
+  .msg-time {
+    font-family: var(--mono); font-size: 10px; color: var(--muted);
+    flex-shrink: 0; width: 40px; text-align: right; user-select: none;
+  }
+  .msg-name { font-family: var(--mono); font-size: 12px; font-weight: 500; flex-shrink: 0; margin-right: 2px; }
+  .msg-text { font-size: 14px; line-height: 1.55; word-break: break-word; color: #c8c8c8; flex: 1; }
+
+  .sys-row { display: flex; align-items: center; justify-content: center; padding: 8px 0; }
+  .sys-pill {
+    font-family: var(--mono); font-size: 10px; color: var(--muted);
+    border: 1px solid var(--border); padding: 2px 12px; letter-spacing: 0.04em;
+  }
+
+  #typing-bar {
+    min-height: 22px; padding: 2px 28px 4px;
+    font-family: var(--mono); font-size: 11px; color: var(--muted); font-style: italic;
+  }
+
+  #input-bar {
+    display: flex; padding: 14px 20px;
+    border-top: 1px solid var(--border); background: var(--surface); flex-shrink: 0;
+  }
+  #msg-input {
+    flex: 1; padding: 10px 14px; font-size: 14px;
+    background: var(--bg); border: 1px solid var(--border-light); border-right: none;
+    color: var(--text); font-family: var(--sans); outline: none; transition: border-color 0.15s;
+  }
+  #msg-input:focus { border-color: var(--accent); }
+  #msg-input::placeholder { color: var(--muted); }
+  #send-btn {
+    padding: 10px 20px; background: var(--accent); color: #0e0e0e;
+    border: none; font-family: var(--mono); font-size: 13px; font-weight: 500;
+    cursor: pointer; transition: background 0.15s; flex-shrink: 0;
+  }
+  #send-btn:hover { background: var(--accent-dim); }
+  #send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+</style>
+</head>
+<body>
+
+<!-- credentials hardcoded, no config screen needed -->
+
+<!-- SCREEN 2: username -->
+<div id="join-screen">
+  <div class="join-box">
+    <h2>// who are you?</h2>
+    <p>Pick a username. Anyone with this link open is in the same room in real time.</p>
+    <input id="username-input" type="text" maxlength="20" placeholder="username" autocomplete="off" spellcheck="false" />
+    <button id="join-btn">enter room →</button>
+    <div id="join-error"></div>
+  </div>
+</div>
+
+<!-- SCREEN 3: chat -->
+<div id="chat-screen">
+  <div id="chat-header">
+    <div class="header-left">
+      <div class="live-pill"><div class="live-dot"></div>live</div>
+      <div id="room-title">#general</div>
+    </div>
+    <div id="presence-count"></div>
+    <button id="leave-btn">leave ×</button>
+  </div>
+  <div id="messages" role="log" aria-live="polite" aria-label="Chat messages"></div>
+  <div id="typing-bar" aria-live="polite"></div>
+  <div id="input-bar">
+    <input id="msg-input" type="text" maxlength="400" placeholder="say something..." autocomplete="off" />
+    <button id="send-btn">send</button>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+const SUPABASE_URL   = 'https://lguajhrzzicjeigauxfv.supabase.co';
+const SUPABASE_KEY   = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxndWFqaHJ6emljamVpZ2F1eGZ2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg4MDM0NDgsImV4cCI6MjA5NDM3OTQ0OH0.DE_p7t_fVg_pRNPaMifodhH7bkdaxQzIbyGzhBDi19k';
+const COLORS         = ['#c8f542','#f5a623','#58d9f4','#f472b6','#a78bfa','#34d399','#fb923c','#f87171'];
+const RATE_LIMIT_MS  = 1200;
+const MSG_HISTORY    = 60;
+
+let sb          = null;
+let myName      = '';
+let myColor     = '';
+let channel     = null;
+let lastSent    = 0;
+let typingTimer = null;
+let typingMap   = {};
+let presenceMap = {};
+
+const $             = id => document.getElementById(id);
+const joinScreen    = $('join-screen');
+const chatScreen    = $('chat-screen');
+const usernameInput = $('username-input');
+const joinBtn       = $('join-btn');
+const joinError     = $('join-error');
+const messagesEl    = $('messages');
+const typingBar     = $('typing-bar');
+const msgInput      = $('msg-input');
+const sendBtn       = $('send-btn');
+const leaveBtn      = $('leave-btn');
+const presenceEl    = $('presence-count');
+
+function showErr(el, msg) { el.textContent = msg; el.style.display = 'block'; }
+function hideErr(el) { el.style.display = 'none'; }
+
+function esc(str) {
+  return String(str)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function fmtTime(iso) {
+  return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function pickColor(name) {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+  return COLORS[h % COLORS.length];
+}
+
+function scrollBottom() { messagesEl.scrollTop = messagesEl.scrollHeight; }
+
+function renderMsg(row) {
+  const color = pickColor(row.username);
+  const div = document.createElement('div');
+  div.className = 'msg';
+  div.innerHTML =
+    `<span class="msg-time">${fmtTime(row.created_at)}</span>` +
+    `<span class="msg-name" style="color:${color}">${esc(row.username)}</span>` +
+    `<span class="msg-text">${esc(row.content)}</span>`;
+  messagesEl.appendChild(div);
+  scrollBottom();
+}
+
+function renderSys(text) {
+  const div = document.createElement('div');
+  div.className = 'sys-row';
+  div.innerHTML = `<span class="sys-pill">${esc(text)}</span>`;
+  messagesEl.appendChild(div);
+  scrollBottom();
+}
+
+function updatePresence() {
+  const n = Object.keys(presenceMap).length;
+  presenceEl.textContent = n > 0 ? `${n} online` : '';
+}
+
+function showTyping(username) {
+  if (username === myName) return;
+  clearTimeout(typingMap[username]);
+  typingMap[username] = setTimeout(() => { delete typingMap[username]; renderTyping(); }, 3000);
+  renderTyping();
+}
+
+function renderTyping() {
+  const names = Object.keys(typingMap).filter(n => n !== myName);
+  if (!names.length) { typingBar.textContent = ''; return; }
+  typingBar.textContent = names.length === 1
+    ? `${names[0]} is typing...`
+    : `${names.slice(0,-1).join(', ')} and ${names[names.length-1]} are typing...`;
+}
+
+/* ── auto-init supabase on load ── */
+window.addEventListener('DOMContentLoaded', () => {
+  sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  joinScreen.style.display = 'flex';
+  usernameInput.focus();
+});
+
+/* ── join ── */
+joinBtn.addEventListener('click', joinChat);
+usernameInput.addEventListener('keydown', e => { if (e.key === 'Enter') joinChat(); });
+
+async function joinChat() {
+  hideErr(joinError);
+  const name = usernameInput.value.trim();
+  if (!name) { showErr(joinError, 'pick a username'); return; }
+  if (name.length < 2) { showErr(joinError, 'at least 2 characters please'); return; }
+  if (!/^[a-zA-Z0-9_\-.]+$/.test(name)) { showErr(joinError, 'letters, numbers, _ - . only'); return; }
+
+  myName  = name;
+  myColor = pickColor(name);
+  joinBtn.disabled = true;
+  joinBtn.textContent = 'joining...';
+
+  const { data, error } = await sb
+    .from('messages')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(MSG_HISTORY);
+
+  if (error) {
+    showErr(joinError, `could not load history: ${error.message}`);
+    joinBtn.disabled = false; joinBtn.textContent = 'enter room →'; return;
+  }
+
+  (data || []).reverse().forEach(renderMsg);
+
+  joinScreen.style.display = 'none';
+  chatScreen.style.display = 'flex';
+  msgInput.focus();
+
+  /* realtime: new messages */
+  sb.channel('room:messages')
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, p => {
+      renderMsg(p.new);
+    })
+    .subscribe();
+
+  /* presence + typing */
+  channel = sb.channel('room:presence', { config: { presence: { key: myName } } });
+
+  channel
+    .on('presence', { event: 'sync' }, () => {
+      const state = channel.presenceState();
+      presenceMap = {};
+      Object.values(state).flat().forEach(p => { presenceMap[p.username] = true; });
+      updatePresence();
+    })
+    .on('presence', { event: 'join' }, ({ newPresences }) => {
+      newPresences.forEach(p => {
+        presenceMap[p.username] = true;
+        if (p.username !== myName) renderSys(`${p.username} joined`);
+      });
+      updatePresence();
+    })
+    .on('presence', { event: 'leave' }, ({ leftPresences }) => {
+      leftPresences.forEach(p => {
+        delete presenceMap[p.username];
+        renderSys(`${p.username} left`);
+      });
+      updatePresence();
+    })
+    .on('broadcast', { event: 'typing' }, ({ payload }) => {
+      showTyping(payload.username);
+    })
+    .subscribe(async status => {
+      if (status === 'SUBSCRIBED') {
+        await channel.track({ username: myName });
+      }
+    });
+}
+
+/* ── send ── */
+async function sendMsg() {
+  const text = msgInput.value.trim();
+  if (!text || text.length > 400) return;
+  if (Date.now() - lastSent < RATE_LIMIT_MS) return;
+  lastSent = Date.now();
+
+  sendBtn.disabled = true;
+  const saved = msgInput.value;
+  msgInput.value = '';
+
+  const { error } = await sb.from('messages').insert({ username: myName, color: myColor, content: text });
+  if (error) msgInput.value = saved;
+
+  sendBtn.disabled = false;
+  msgInput.focus();
+}
+
+sendBtn.addEventListener('click', sendMsg);
+msgInput.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMsg(); } });
+
+msgInput.addEventListener('input', () => {
+  if (!channel) return;
+  clearTimeout(typingTimer);
+  channel.send({ type: 'broadcast', event: 'typing', payload: { username: myName } });
+  typingTimer = setTimeout(() => {}, 2500);
+});
+
+/* ── leave ── */
+leaveBtn.addEventListener('click', async () => {
+  if (channel) { await channel.untrack(); await sb.removeAllChannels(); channel = null; }
+  myName = ''; myColor = ''; presenceMap = {}; typingMap = {};
+  messagesEl.innerHTML = ''; typingBar.textContent = ''; presenceEl.textContent = '';
+  chatScreen.style.display = 'none';
+  joinScreen.style.display = 'flex';
+  joinBtn.disabled = false; joinBtn.textContent = 'enter room →';
+  usernameInput.value = ''; usernameInput.focus();
+});
+
+
+</script>
+</body>
+</html>
