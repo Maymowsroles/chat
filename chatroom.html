@@ -241,6 +241,23 @@
   }
   .gif-thumb:hover { opacity: 0.8; border-color: var(--accent); }
   #gif-status { font-family: var(--mono); font-size: 11px; color: var(--muted); text-align: center; padding: 20px 0; }
+
+  /* LINK PREVIEW */
+  .link-preview {
+    display: flex; gap: 10px; margin-top: 6px; max-width: 380px;
+    border: 1px solid var(--border); border-left: 3px solid var(--accent-dim);
+    background: var(--bg); padding: 8px 10px; border-radius: 2px; cursor: pointer;
+  }
+  .link-preview:hover { border-left-color: var(--accent); }
+  .link-preview-thumb { width: 80px; height: 54px; object-fit: cover; border-radius: 2px; flex-shrink: 0; }
+  .link-preview-info { display: flex; flex-direction: column; gap: 3px; min-width: 0; justify-content: center; }
+  .link-preview-title { font-size: 12px; font-weight: 500; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .link-preview-domain { font-family: var(--mono); font-size: 10px; color: var(--muted); }
+  .link-preview-desc { font-size: 11px; color: var(--muted); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .yt-wrap { margin-top: 6px; max-width: 380px; }
+  .yt-embed { width: 100%; aspect-ratio: 16/9; border: none; border-radius: 2px; display: block; }
+  .msg-link { color: var(--accent-dim); text-decoration: underline; word-break: break-all; }
+  .censored { background: var(--border-light); color: transparent; border-radius: 2px; user-select: none; letter-spacing: -0.5px; }
 </style>
 </head>
 <body>
@@ -423,6 +440,56 @@ function pickColor(name) {
 function scrollBottom() { messagesEl.scrollTop = messagesEl.scrollHeight; }
 function closeAllPanels() { emojiPanel.classList.remove('open'); gifPanel.classList.remove('open'); }
 
+/* ── swear filter ── */
+const SWEARS = [
+  'fuck','shit','ass','bitch','bastard','damn','crap','piss','dick','cock',
+  'pussy','asshole','motherfucker','cunt','twat','fag','slut','whore','nigger','nigga'
+];
+function filterSwears(text) {
+  let out = text;
+  SWEARS.forEach(w => {
+    const re = new RegExp('\\b' + w + '\\b', 'gi');
+    out = out.replace(re, match => `<span class="censored">${'*'.repeat(match.length)}</span>`);
+  });
+  return out;
+}
+
+/* ── url detection ── */
+const URL_RE = /https?:\/\/[^\s]+/g;
+function getYouTubeId(url) {
+  const m = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([\w-]{11})/);
+  return m ? m[1] : null;
+}
+function renderTextWithLinks(text) {
+  const filtered = filterSwears(esc(text));
+  return filtered.replace(/https?:\/\/[^\s<]+/g, url => {
+    const cleanUrl = url.replace(/&amp;/g, '&');
+    return `<a class="msg-link" href="${esc(cleanUrl)}" target="_blank" rel="noopener">${url}</a>`;
+  });
+}
+function buildLinkPreview(url) {
+  const ytId = getYouTubeId(url);
+  if (ytId) {
+    const wrap = document.createElement('div');
+    wrap.className = 'yt-wrap';
+    wrap.innerHTML = `<iframe class="yt-embed" src="https://www.youtube.com/embed/${ytId}" allowfullscreen loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"></iframe>`;
+    return wrap;
+  }
+  // generic link preview card (no CORS — just show domain + link)
+  try {
+    const u = new URL(url);
+    const card = document.createElement('div');
+    card.className = 'link-preview';
+    card.addEventListener('click', () => window.open(url, '_blank', 'noopener'));
+    card.innerHTML =
+      `<div class="link-preview-info">` +
+      `<div class="link-preview-domain">${esc(u.hostname)}</div>` +
+      `<div class="link-preview-title">${esc(u.hostname + u.pathname.slice(0,50))}</div>` +
+      `</div>`;
+    return card;
+  } catch(e) { return null; }
+}
+
 /* ── render message ── */
 function renderMsg(row) {
   const color = pickColor(row.username);
@@ -435,10 +502,23 @@ function renderMsg(row) {
       `<span class="msg-text"><img class="msg-gif" src="${esc(row.gif_url)}" alt="gif" loading="lazy" /></span>`;
   } else {
     div.className = 'msg';
+    const textHtml = renderTextWithLinks(row.content);
     div.innerHTML =
       `<span class="msg-time">${fmtTime(row.created_at)}</span>` +
       `<span class="msg-name" style="color:${color}">${esc(row.username)}</span>` +
-      `<span class="msg-text">${esc(row.content)}</span>`;
+      `<span class="msg-text">${textHtml}</span>`;
+    // add link previews below
+    const urls = (row.content || '').match(URL_RE);
+    if (urls) {
+      const textSpan = div.querySelector('.msg-text');
+      const seen = new Set();
+      urls.forEach(url => {
+        if (seen.has(url)) return; seen.add(url);
+        const preview = buildLinkPreview(url);
+        if (preview) textSpan.appendChild(preview);
+      });
+      div.className = 'msg gif-msg'; // reuse align-items:flex-start
+    }
   }
   messagesEl.appendChild(div);
   scrollBottom();
@@ -651,6 +731,9 @@ createNameInput.addEventListener('keydown', e => { if (e.key === 'Enter') create
 async function sendMsg() {
   const text = msgInput.value.trim();
   if (!text || text.length > 400) return;
+  // warn if message is ALL swears with nothing else
+  const clean = text.replace(new RegExp('\\b(' + SWEARS.join('|') + ')\\b', 'gi'), '').trim();
+  if (!clean && text.length > 0) { msgInput.style.borderColor = 'var(--danger)'; setTimeout(() => msgInput.style.borderColor = '', 800); return; }
   if (Date.now() - lastSent < RATE_LIMIT_MS) return;
   lastSent = Date.now();
   sendBtn.disabled = true;
