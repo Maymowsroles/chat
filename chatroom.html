@@ -290,6 +290,20 @@
   </div>
 </div>
 
+<!-- USERNAME PICKER -->
+<div id="username-screen" style="display:none;align-items:center;justify-content:center;min-height:100vh;padding:2rem;">
+  <div class="join-box">
+    <h2>// pick a username</h2>
+    <p>This is how you'll appear in chat. You can use your real name or make one up.</p>
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">
+      <img id="google-avatar-preview" src="" width="40" height="40" style="border-radius:50%;display:none;" />
+      <input id="username-pick-input" type="text" maxlength="20" placeholder="username..." autocomplete="off" spellcheck="false" style="flex:1;padding:11px 14px;font-size:15px;background:var(--surface);border:1px solid var(--border-light);color:var(--text);font-family:var(--mono);outline:none;transition:border-color 0.15s;margin-bottom:0;" />
+    </div>
+    <button id="username-pick-btn" style="width:100%;padding:11px;background:var(--accent);color:#0e0e0e;border:none;font-family:var(--mono);font-size:13px;font-weight:500;cursor:pointer;">enter chat →</button>
+    <div id="username-pick-error" style="font-size:12px;color:var(--danger);margin-top:0.75rem;font-family:var(--mono);display:none;"></div>
+  </div>
+</div>
+
 <!-- PASSWORD MODAL -->
 <div id="pw-overlay" class="overlay hidden">
   <div class="modal">
@@ -787,18 +801,42 @@ googleBtn.addEventListener('click', async () => {
 });
 
 async function enterChatAsUser(user) {
-  myName  = user.user_metadata?.full_name || user.email.split('@')[0];
-  myColor = pickColor(myName);
   myAvatar = user.user_metadata?.avatar_url || null;
+  const suggested = user.user_metadata?.full_name || user.email.split('@')[0];
 
+  // show username picker
+  joinScreen.style.display = 'none';
+  const usernameScreen = $('username-screen');
+  usernameScreen.style.display = 'flex';
+  const pickInput = $('username-pick-input');
+  const avatarPreview = $('google-avatar-preview');
+  pickInput.value = suggested.replace(/[^a-zA-Z0-9_\-.]/g,'').slice(0,20);
+  if (myAvatar) { avatarPreview.src = myAvatar; avatarPreview.style.display = 'block'; }
+  setTimeout(() => { pickInput.focus(); pickInput.select(); }, 50);
+
+  const confirmUsername = async () => {
+    const name = pickInput.value.trim();
+    const errEl = $('username-pick-error');
+    errEl.style.display = 'none';
+    if (!name || name.length < 2) { errEl.textContent = 'at least 2 characters'; errEl.style.display = 'block'; return; }
+    if (!/^[a-zA-Z0-9_\-.]+$/.test(name)) { errEl.textContent = 'letters, numbers, _ - . only'; errEl.style.display = 'block'; return; }
+    myName  = name;
+    myColor = pickColor(myName);
+    usernameScreen.style.display = 'none';
+    await loadRoomsAndEnter();
+  };
+
+  $('username-pick-btn').onclick = confirmUsername;
+  pickInput.onkeydown = e => { if (e.key === 'Enter') confirmUsername(); };
+}
+
+async function loadRoomsAndEnter() {
   const { data: roomData } = await sb.from('rooms').select('name,locked,password').order('created_at');
   if (roomData && roomData.length > 0) {
     const dbRooms = roomData.map(r => ({ name: r.name, locked: r.locked || false, password: r.password || null }));
     const existing = new Set(DEFAULT_ROOMS.map(r => r.name));
     dbRooms.forEach(r => { if (!existing.has(r.name)) rooms.push(r); else { const def = rooms.find(d => d.name === r.name); if (def) { def.locked = r.locked; def.password = r.password; } } });
   }
-
-  joinScreen.style.display = 'none';
   chatScreen.style.display = 'block';
   roomTitle.textContent = `#${currentRoom}`;
   renderRoomList();
