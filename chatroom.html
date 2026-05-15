@@ -472,33 +472,59 @@ const SWEARS = [
 
 // leet-speak normalizer
 function normalizeLeet(str) {
-  return str
+  return str.toLowerCase()
     .replace(/@/g,'a').replace(/4/g,'a')
     .replace(/3/g,'e').replace(/€/g,'e')
-    .replace(/1/g,'i').replace(/!/g,'i')
+    .replace(/1/g,'i').replace(/!/g,'i').replace(/\|/g,'i')
     .replace(/0/g,'o')
     .replace(/5/g,'s').replace(/\$/g,'s')
     .replace(/7/g,'t').replace(/\+/g,'t')
-    .replace(/ph/g,'f')
-    .replace(/x/g,'ks')
-    .toLowerCase();
+    .replace(/ph/g,'f').replace(/ck/g,'k')
+    .replace(/[*.,\-_]/g,'');
+}
+
+// combined filter: manual list + bad-words library if loaded
+let Filter = null;
+let filterInstance = null;
+(async () => {
+  try {
+    // load the bad-words JS library (~1400 words, community maintained)
+    const mod = await import('https://cdn.jsdelivr.net/npm/bad-words@3.0.4/+esm');
+    Filter = mod.default || mod.Filter;
+    filterInstance = new Filter();
+    // add extra phrases bad-words misses
+    filterInstance.addWords(...SWEARS);
+  } catch(e) { /* fallback to manual list only */ }
+})();
+
+function censor(token) {
+  return `<span class="censored">${'█'.repeat(Math.max(token.length,1))}</span>`;
 }
 
 function filterSwears(text) {
+  // phrase-level first
   let out = text;
-  // multi-word phrases first
   const phrases = SWEARS.filter(w => w.includes(' '));
   phrases.forEach(p => {
     const re = new RegExp(p.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'), 'gi');
-    out = out.replace(re, match => `<span class="censored">${'█'.repeat(match.length)}</span>`);
+    out = out.replace(re, match => censor(match));
   });
-  // single words — also test normalized version
-  const singles = SWEARS.filter(w => !w.includes(' '));
-  // tokenize by word boundaries including leet
-  out = out.replace(/[\w@$!0-9]+/g, token => {
+
+  // word-level: use bad-words lib if available, else manual
+  out = out.replace(/[\w@$!|0-9*]+/g, token => {
+    if (token.startsWith('<')) return token; // skip already-censored
     const norm = normalizeLeet(token);
-    const matched = singles.find(w => norm === normalizeLeet(w) || norm.includes(normalizeLeet(w)));
-    if (matched) return `<span class="censored">${'█'.repeat(token.length)}</span>`;
+    // check manual list
+    const manualHit = SWEARS.filter(w => !w.includes(' ')).find(w => {
+      const nw = normalizeLeet(w);
+      return norm === nw || norm.includes(nw);
+    });
+    if (manualHit) return censor(token);
+    // check bad-words library
+    if (filterInstance) {
+      try { if (filterInstance.isProfane(token) || filterInstance.isProfane(norm)) return censor(token); }
+      catch(e) {}
+    }
     return token;
   });
   return out;
