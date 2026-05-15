@@ -442,14 +442,64 @@ function closeAllPanels() { emojiPanel.classList.remove('open'); gifPanel.classL
 
 /* ── swear filter ── */
 const SWEARS = [
-  'fuck','shit','ass','bitch','bastard','damn','crap','piss','dick','cock',
-  'pussy','asshole','motherfucker','cunt','twat','fag','slut','whore','nigger','nigga'
+  // core
+  'fuck','fucker','fucking','fucked','fucks','f\u00fcck','fvck','f4ck','ph\u00fcck',
+  'shit','shitting','shitty','sh1t','$hit','sheit',
+  'ass','asses','asshole','asswipe','jackass','dumbass','smartass','arsehole','arse',
+  'bitch','bitches','bitching','b1tch','biatch',
+  'bastard','bastards',
+  'crap','crappy',
+  'piss','pissed','pissing',
+  'dick','dicks','dickhead','d1ck',
+  'cock','cocks','cockhead',
+  'pussy','pussies',
+  'motherfucker','motherf\u00fccker','mf',
+  'cunt','cunts','c\u00fcnt',
+  'twat','twats',
+  'fag','faggot','faggots',
+  'slut','slutty','sluts',
+  'whore','whores',
+  'nigger','niggers','nigga','niggas','n1gger',
+  'retard','retarded','retards',
+  'kike','spic','chink','gook','wetback','tranny',
+  'rape','raping','rapist',
+  'nazi','nazi',
+  'wtf','stfu','gtfo',
+  'sex','sexy','porn','pornography','dildo','vibrator','masturbate','masturbation',
+  'cum','cumming','jizz','boner','erection','orgasm','horny',
+  'kill yourself','kys','go die','die bitch','i will kill','i\'ll kill'
 ];
+
+// leet-speak normalizer
+function normalizeLeet(str) {
+  return str
+    .replace(/@/g,'a').replace(/4/g,'a')
+    .replace(/3/g,'e').replace(/€/g,'e')
+    .replace(/1/g,'i').replace(/!/g,'i')
+    .replace(/0/g,'o')
+    .replace(/5/g,'s').replace(/\$/g,'s')
+    .replace(/7/g,'t').replace(/\+/g,'t')
+    .replace(/ph/g,'f')
+    .replace(/x/g,'ks')
+    .toLowerCase();
+}
+
 function filterSwears(text) {
   let out = text;
-  SWEARS.forEach(w => {
-    const re = new RegExp('\\b' + w + '\\b', 'gi');
-    out = out.replace(re, match => `<span class="censored">${'*'.repeat(match.length)}</span>`);
+  // multi-word phrases first
+  const phrases = SWEARS.filter(w => w.includes(' '));
+  phrases.forEach(p => {
+    const re = new RegExp(p.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'), 'gi');
+    out = out.replace(re, match => `<span class="censored">${'█'.repeat(match.length)}</span>`);
+  });
+  // single words — also test normalized version
+  const singles = SWEARS.filter(w => !w.includes(' '));
+  // tokenize by word boundaries including leet
+  out = out.replace(/[\w@$!0-9]+/g, token => {
+    const norm = normalizeLeet(token);
+    const matched = singles.find(w => norm === normalizeLeet(w) || norm.includes(normalizeLeet(w)));
+    if (matched) return `<span class="censored">${'█'.repeat(token.length)}</span>`;
+    return token;
   });
   return out;
 }
@@ -732,8 +782,10 @@ async function sendMsg() {
   const text = msgInput.value.trim();
   if (!text || text.length > 400) return;
   // warn if message is ALL swears with nothing else
-  const clean = text.replace(new RegExp('\\b(' + SWEARS.join('|') + ')\\b', 'gi'), '').trim();
-  if (!clean && text.length > 0) { msgInput.style.borderColor = 'var(--danger)'; setTimeout(() => msgInput.style.borderColor = '', 800); return; }
+  const normText = normalizeLeet(text);
+  const allSwear = SWEARS.filter(w => !w.includes(' ')).every(w => normText.includes(normalizeLeet(w))) || SWEARS.filter(w=>!w.includes(' ')).some(w => normalizeLeet(text.trim()) === normalizeLeet(w));
+  const clean = text.replace(/[\w@$!0-9]+/g, t => { const n=normalizeLeet(t); return SWEARS.filter(w=>!w.includes(' ')).find(w=>n===normalizeLeet(w)||n.includes(normalizeLeet(w)))?'':t; }).trim();
+  if (!clean) { msgInput.style.borderColor = 'var(--danger)'; setTimeout(() => msgInput.style.borderColor = '', 800); return; }
   if (Date.now() - lastSent < RATE_LIMIT_MS) return;
   lastSent = Date.now();
   sendBtn.disabled = true;
